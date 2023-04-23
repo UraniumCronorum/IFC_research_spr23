@@ -1,0 +1,114 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex		
+\usepackage{amssymb}
+\usepackage{proof}
+\usepackage{listings}
+\usepackage{turnstile}
+
+%SetFonts
+
+%SetFonts
+
+
+\title{Research Update}
+\author{Wesley Nuzzo}
+%\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+
+\section{progress on the paper}
+
+I went through some examples of the typechecking rules for declassification and assignment work, based on the previous examples we used for Noninterference according to policy.
+I'll show those examples here.
+
+I also reviewed the rules from the wikipedia article to get better idea of how the basic rules work, especially the program counter.
+I'm not copying those here, though, to save time.
+
+\subsection{Declassification and Assignment Examples}
+
+I've modified the examples a little bit to suit the model. In particular, instead of guarding the assignment to $y$ with an if statement (which is sufficient for noninterference according to policy), I use the declassify statement. 
+
+For all examples, assume $\Gamma(x)=\texttt{secret}$, $\Gamma(y)=\texttt{public}$, and $\Gamma(z)=\texttt{secret} \searrow ^{c}\texttt{public}$.
+We also asume $\Gamma(c)=\texttt{secret}$.
+
+For all of these, I'm going to ignore the inference rules involving $pc$ to simplify things.
+
+\subsubsection{example 1}
+Example 1: $x:=m$ with $\Gamma(m)=\texttt{secret} \searrow ^{c}\texttt{public}$ passes typechecking.
+
+\[\infer{pc, \Gamma \vdash x:=m \texttt{ com}}
+	  {\infer{\Gamma\vdash m:\texttt{secret} \searrow ^{c}\texttt{public} \texttt{ exp} }
+	  	   {\vdash\Gamma(m)\le \texttt{secret} \searrow ^{c}\texttt{public} }
+		   {\textsc{ T-Var}}
+	   &&
+	   \vdash \texttt{secret} \searrow ^{c}\texttt{public} \le \Gamma(x)}
+	  {\textsc{T-Assign}}\]
+
+
+\subsubsection{example 2}
+$y:=m$ with $\Gamma(m)=\texttt{secret} \searrow ^{c}\texttt{public}$ fails typechecking.
+
+\[\infer{pc, \Gamma \nvdash y:=m \texttt{ com}}
+	  {\Gamma\vdash m:\texttt{secret} \searrow ^{c}\texttt{public} &&
+	  \nvdash \texttt{secret} \searrow ^{c}\texttt{public} \le \Gamma(y)}
+	  {}\]
+
+\subsubsection{example 3}
+$y:=\textbf{declassify}(m, \texttt{secret} \searrow ^{c}\texttt{public} \textbf{ to } \texttt{public}, \textbf{using } c)$ with $\Gamma(m)=\texttt{secret} \searrow ^{c}\texttt{public}$ passes typechecking.
+
+\[\infer{\texttt{public}, \Gamma \vdash y:=\textbf{declassify}(m, \texttt{secret} \searrow ^{c}\texttt{public} \textbf{ to } \texttt{public}, \textbf{using } c) \texttt{ com}}
+	  {\Gamma\vdash m:\texttt{secret} \searrow ^{c}\texttt{public} &&
+	    \vdash \texttt{public} \le \Gamma(y) &&
+	    \infer{\Gamma \vdash c : \Gamma(y)}
+	            {\vdash \Gamma(c) \le \Gamma(y)}
+	            {}
+	    &&
+	    c \vdash \texttt{secret} \searrow ^{c}\texttt{public} \le \texttt{public} }{}{}
+	  {}\]
+
+The first two conditions are similar to the previous example, except that in the second we use $\texttt{public}$, because that's the level we're declassifying to.
+
+The condition $\Gamma\vdash c : \Gamma(y)$ requires that condition $c$ be at least as public as $y$. In this case, both are \texttt{public}, so that passes.
+
+The condition $c \vdash \texttt{secret} \searrow ^{c}\texttt{public} \le \texttt{public} $ shows that it is safe to declassify the policy under condition $c$. In this case, it passes following the rule \textsc{RL-Decl} from the relabeling judgements.
+
+\section{Ideas for application to real-world model}
+
+I had three main ideas here.
+
+In all cases I'm envisioning an online webserver where data is collected, and users have the ability to submit requests for their data to be deleted through this server.
+
+Of these, my main focus is on the mailing list idea.
+
+\subsection{idea 1: mailing list}
+Users sign up to the mailing list by entering a login and an email address. The server can then send emails to all users on the mailing list using the addresses it has. 
+
+Users can use their login to update their email address or delete it from the server entirely. Policy should enforce erasure of the original email address when it gets updated, and erasure of any email address that gets deleted, along with account info.
+
+\subsection{idea 2: fitness tracker}
+A simple fitness app that records things like number of steps taken per day, and so on. Data is grouped by date and time, and users would have the ability to see their own data or delete it for a particular category or time period.
+
+Could maybe add the option to declassify data to send it to, e.g. a doctor or a fitness coach.
+
+\subsection{idea 3: ad service}
+A server that stores data on a users demographics and interests, and can serve ads based on that information.
+
+Users would be able to query the database to see what the database categorizes them as, and to request the deletion of some or all of that data.
+
+\subsection{further ideas to consider}
+A couple other thoughts:
+
+It might be worth adding a way to show/send the user a confirmation of what data has been deleted. It also might be worth thinking of how to prove to the user that the erasure condition was set.
+
+It may be worth looking into how to make it possible to make backups of the data on the system without violating the erasure conditions when a backup is restored.
+My thinking is that erasure policies could be converted to declassification policies, where the data is only declassified to its original erasure policy after confirmation has been received from the user that the data is still usable. 
+
+
+
+\end{document}  
