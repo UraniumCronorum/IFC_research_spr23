@@ -1,0 +1,134 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex		
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{mathtools} 
+\usepackage{proof}
+\usepackage{listings}
+\usepackage{turnstile}
+
+%SetFonts
+
+%SetFonts
+
+
+\title{Implementation Report}
+\author{Wesley Nuzzo}
+%\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+
+\section{LIO's DCLabel}
+
+We're using the DCLabel type already defined in the LIO Library as a starting point.
+
+A DCLabel (Disjunction Category Label) has a secrecy component and an integrity component, and would be specified like:
+
+\begin{lstlisting}[language=Haskell]
+dc = secrecy %% integrity
+\end{lstlisting}
+
+Where \texttt{secrecy} is the secrecy component and \texttt{integrity} is the integrity component.
+Both components are CNFs, which express policies in Conjunctive Normal Form, e.g.:
+
+\begin{lstlisting}[language=Haskell]
+secrecy = (a1 \/ a2 \/ ...) /\ (b1 \/ b2 \/ ... ) /\ ...
+\end{lstlisting}
+
+A label $\texttt{s1 \%\% i1} \sqsubseteq \texttt{s2 \%\% i2}$ if and only if when interpreted as logical predicates, \texttt{s2} implies  \texttt{s1} and  \texttt{i1} implies \texttt{i2}.
+
+Since we're only really interested in the secrecy component, we can assume that the integrity component is always \texttt{true}. This allows us to ignore it in our analysis.
+
+\subsection{joins, meets and so on}
+
+Comparing this to the normal notation for meets and joins: if $s_1$, $s_2$ and $i$ are CNFs, then:
+$$(s_1\texttt{ \%\% }i) \sqcup (s_2\texttt{ \%\% }i) = (s_1\land s_2 \texttt{ \%\% } i)$$
+$$(s_1\texttt{ \%\% }i) \sqcap (s_2\texttt{ \%\% }i) = (s_1\lor s_2 \texttt{ \%\% } i)$$
+$$(s_1\lor s_2 \texttt{ \%\% } i) \sqsubseteq (s_k\texttt{ \%\% } i)  \sqsubseteq (s_1\land s_2 \texttt{ \%\% } i), k\in\{1,2\}$$
+$$\top = (\texttt{cFalse} \texttt{ \%\% }i)$$
+$$\bot = (\texttt{cTrue} \texttt{ \%\% }i)$$
+
+\section{Normal Form for Declassification and Erasure Policies}
+The idea is to extend the existing normal form to account for declassification and erasure policies. Because it's a normal form, if two policies are the same, they should have the same normal form, even if they're initially expressed differently.
+
+Originally my idea was to do this:
+$$p\nearrow^c q = (p\nearrow^c\top) \sqcap (p\sqcup q)$$
+$$p\searrow^c q = p \sqcap (\top\searrow^c q)$$
+
+However, it's not clear how to represent $\top\searrow^c\bot$ or $\bot\nearrow^c\top$ using this strategy.
+
+So instead, I propose this:
+$$p\nearrow^c q = (p\sqcup q) \sqcap (p \sqcup(\bot\nearrow^c\top))$$
+$$p\searrow^c q = p \sqcap (q \sqcup (\top\searrow^c \bot))$$
+
+Which enables us to add two terms, $\texttt{E }c$ and $\texttt{D }c$, representing $\bot\nearrow^c\top$ and $\top\searrow^c\bot$ respectively.
+Every other declassification and erasure policy can be constructed from these two terms together with Principals using conjunctions and disjunctions.
+
+\section{Proposed Changes to LIO}
+
+First of all, it is probably necessary to implement a \texttt{Cond} type which functions similarly to an \texttt{LIORef} of \texttt{Bool}, but which doesn't allow conditions to be unset once set and which allows comparing conditions based on reference equivalence.
+
+Given the proper implementation of \texttt{Cond}, we can implement the following type:
+
+\begin{lstlisting}[language=Haskell]
+
+data AtomicPolicy = L Principal | D Cond | E Cond
+
+-- constructors
+
+latticeFromPrincipal :: Principal -> AtomicPolicy
+latticeFromPrincipal pr = L pr
+
+latticePolicy :: String -> AtomicPolicy
+latticePolicy str = latticeFromPrincipal $ principal str
+
+-- instance
+instance Eq AtomicPolicy where
+	L x == L y  =  x == y
+	D c == D d  =  c == d
+	E c == E d  =  c == d
+	x == y  =  false
+\end{lstlisting}
+(Code may have some errors; not sure)
+
+If we then replace \texttt{Principal} with \texttt{AtomicCond} in the regular DCLabel code, we should have the basic support we need for label relationships.
+
+We can also implement the following helper functions:
+
+\begin{lstlisting}[language=Haskell]
+
+(/>) :: (ToCNF a, ToCNF b) -> a -> b -> Cond -> CNF
+(\>) :: (ToCNF a, ToCNF b) -> a -> b -> Cond -> CNF
+
+p (/>) q c = (p /\ q) \/ (p /\ (E c))
+p (\>) q c = p \/ (q /\ (D c))
+
+\end{lstlisting}
+
+Which would make it easier to create general declassification and erasure policies. 
+
+% Looking through the code, 
+
+After this, we would need to implement the \texttt{update} function, which updates a label based on the current status of its conditions. We can define this helper function:
+
+\begin{lstlisting}[language=Haskell]
+updateAtomic :: LIO AtomicPolicy -> LIO AtomicPolicy
+updateAtomic (LIO (L l)) = LIO (L l)
+updateAtomic (LIO (D c)) = if (readCond c) then cTrue else (D c)
+updateAtomic (LIO (E c)) = if (readCond c) then cFalse else (E c)
+\end{lstlisting}
+
+Which then can be mapped to the atoms of the CNF to update the entire policy.
+
+After this, its just a matter of calling \texttt{update} in the situations where the policy needs to be updated, as discussed in the previous report.
+
+
+%\section{Obstacles and Challenges}
+
+\end{document}

@@ -1,0 +1,269 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex		
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{mathtools} 
+\usepackage{proof}
+\usepackage{listings}
+\usepackage{turnstile}
+
+%SetFonts
+
+%SetFonts
+
+
+\title{Research Report}
+\author{Wesley Nuzzo}
+%\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Abstract
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Abstract}
+
+This report discusses a proposal for implementing Declassification and Erasure policies in Haskell. 
+These extend ordinary IFC policies by allowing policies to change to a lower level (declassification) or requiring them to change to a higher level (erasure) if a particular condition is met. 
+
+The approach is to modify the LIO library to add the following: (1) a new type of label, tentatively called DEPLabel, which is similar to the existing DCLabel except that it also is capable of representing declassification and erasure policies, (2) a new type, Cond, which is similar to an LIORef of a Bool except that once set, it can never be unset, and it can be used as the condition for DEPLabel, and (3) a function update() which can be used to update a policy based on the current state of the conditions according to the LIO monad.
+
+This report includes updated formal semantics for LIO based on this approach, a discussion of the practical implementation, and case studies.
+
+\section{link to repositories}
+The source code associated with this report can be found at https://github.com/UraniumCronorum/lio-de, which is a fork of https://github.com/PLSysSec/lio/ commit 622a3e7. 
+
+\break
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Theory / Semantics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section {Theory}
+This section is an update to the formal specification presented in the LIO paper.
+
+\section{Update of figure 2 (syntax)} 
+\noindent 
+
+Bool: $b$
+
+Label: $l$
+
+Address: $a$
+
+Policy:
+\begin{equation*} p ::=  l\ |\ p\nearrow^a p\ |\ p\searrow^a p  \end{equation*}
+
+Term:
+\begin{equation*}
+\begin{split}
+v::= \texttt{true}\ |\ \texttt{false}\ |\ ()\ |\ p\ |\ a\ |\ x\ |\  \lambda x.e\ |\ (e,e)\ 
+|\ \texttt{fix } e\ |\ \texttt{Lb } v\ e\ |\ (e)^\texttt{LIO}\ | \bullet \\
+|\ \texttt{Cnd } v\ b
+\end{split}
+\end{equation*}
+
+Expression:
+\begin{equation*}
+\begin{split}
+e::= \dots\ |\ \texttt{newCond } e\ e\ |\ \texttt{readCond } e\ |\ \texttt{setCondTrue } e\ | \texttt{labelOfCond } e \\
+%|\ \texttt{unlabel } e\ |\ \texttt{unlabelAndDeclassify } e\ e
+\end{split}
+\end{equation*}
+
+\section{Two different paradigms}
+There are two different possible paradigms for implementing this concept.
+
+The first paradigm is the one presented in Chong's thesis: no memory location can change it's policy, but a declassification policy can be flow to it's secondary policy if it's condition is met, an erasure policy can flow to the join of its primary and secondary policy at all times, and data must be deleted if it requires erasure (i.e., it has an erasure policy whose condition is met or its primary policy requires erasure).
+
+The second paradigm is a bit simpler: the data doesn't change, but the policy does change ``under'' the values as the conditions update.
+
+
+\section{Semantics}
+
+%\subsection{paradigm 1 (Chong's version)}
+
+
+
+\subsection{paradigm 2 (updating policy)}
+
+I'm still working on this one.
+
+%%%%
+% Label and Unlabel
+Label: 
+\infer{\langle\Sigma, E[\texttt{label}\ p\ e]\rangle \longrightarrow \langle\Sigma, E[\texttt{return}\ (\texttt{Lb}\ p\ e)]\rangle}
+       	{\Sigma.lbl \sqsubseteq l \sqsubseteq \Sigma.clr}
+	{}
+
+Unlabel:
+\infer{\langle\Sigma, E[\texttt{unlabel}\ (\texttt{Lb}\ p\ e)]\rangle \longrightarrow \langle\Sigma', E[\texttt{return}\ e]\rangle}
+       	{p'=\Sigma.lbl\sqcup update(p,\Sigma) & p'\sqsubseteq\Sigma.clr & \Sigma'=\Sigma[lbl\mapsto p']}
+	{}
+
+---
+
+%%%%
+% Conditions
+SetCondTrue
+\infer{\langle\Sigma, E[\texttt{setCondTrue}\ a]\rangle \longrightarrow \langle\Sigma'', E[\texttt{return}\ ()]\rangle}
+       	{\begin{aligned}\Sigma.\phi(a)=\texttt{Cond}\ p\ e && \Sigma'=\Sigma.\phi[a\mapsto\texttt{Cond}\ p\ \texttt{true}] \\
+	\Sigma.lbl\sqsubseteq p \sqsubseteq\Sigma.clr && \Sigma'' = \Sigma[lbl\mapsto update(\Sigma'.lbl, \Sigma')]
+	\end{aligned}}
+	{}
+	
+\subsubsection{helper function: $update$}
+$$update(l, \Sigma) = l$$
+When $c$ is true:
+$$update(p\searrow^cq, \Sigma) = p\sqcap(pol(c) \sqcup q)$$
+$$update(p\nearrow^cq, \Sigma) = p \sqcup q$$
+
+When $c$ is false:
+$$update(p\searrow^cq, \Sigma) = p\searrow^cq$$
+$$update(p\nearrow^cq, \Sigma) = q\sqcap(pol(c)\sqcup p\nearrow^cq)$$
+
+
+\break
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Implementation
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Implementation}
+This section discusses the practical implementation of these ideas
+
+\section{LIO's DCLabel}
+
+We're using the DCLabel type already defined in the LIO Library as a starting point.
+
+A DCLabel (Disjunction Category Label) has a secrecy component and an integrity component, and would be specified like:
+
+\begin{lstlisting}[language=Haskell]
+dc = secrecy %% integrity
+\end{lstlisting}
+
+Where \texttt{secrecy} is the secrecy component and \texttt{integrity} is the integrity component.
+Both components are CNFs, which express policies in Conjunctive Normal Form, e.g.:
+
+\begin{lstlisting}[language=Haskell]
+secrecy = (a1 \/ a2 \/ ...) /\ (b1 \/ b2 \/ ... ) /\ ...
+\end{lstlisting}
+
+A label $\texttt{s1 \%\% i1} \sqsubseteq \texttt{s2 \%\% i2}$ if and only if when interpreted as logical predicates, \texttt{s2} implies  \texttt{s1} and  \texttt{i1} implies \texttt{i2}.
+
+Since we're only really interested in the secrecy component, we can assume that the integrity component is always \texttt{true}. This allows us to ignore it in our analysis.
+
+\subsection{joins, meets and so on}
+
+Comparing this to the normal notation for meets and joins: if $s_1$, $s_2$ and $i$ are CNFs, then:
+$$(s_1\texttt{ \%\% }i) \sqcup (s_2\texttt{ \%\% }i) = (s_1\land s_2 \texttt{ \%\% } i)$$
+$$(s_1\texttt{ \%\% }i) \sqcap (s_2\texttt{ \%\% }i) = (s_1\lor s_2 \texttt{ \%\% } i)$$
+$$(s_1\lor s_2 \texttt{ \%\% } i) \sqsubseteq (s_k\texttt{ \%\% } i)  \sqsubseteq (s_1\land s_2 \texttt{ \%\% } i), k\in\{1,2\}$$
+$$\top = (\texttt{cFalse} \texttt{ \%\% }i)$$
+$$\bot = (\texttt{cTrue} \texttt{ \%\% }i)$$
+
+\section{Normal Form for Declassification and Erasure Policies}
+The idea is to extend the existing normal form to account for declassification and erasure policies. Because it's a normal form, if two policies are the same, they should have the same normal form, even if they're initially expressed differently.
+
+Originally my idea was to do this:
+$$p\nearrow^c q = (p\nearrow^c\top) \sqcap (p\sqcup q)$$
+$$p\searrow^c q = p \sqcap (\top\searrow^c q)$$
+
+However, it's not clear how to represent $\top\searrow^c\bot$ or $\bot\nearrow^c\top$ using this strategy.
+
+So instead, I propose this:
+$$p\nearrow^c q = (p\sqcup q) \sqcap (p \sqcup(\bot\nearrow^c\top))$$
+$$p\searrow^c q = p \sqcap (q \sqcup (\top\searrow^c \bot))$$
+
+Which enables us to add two terms, $\texttt{E }c$ and $\texttt{D }c$, representing $\bot\nearrow^c\top$ and $\top\searrow^c\bot$ respectively.
+Every other declassification and erasure policy can be constructed from these two terms together with Principals using conjunctions and disjunctions.
+
+\section{Proposed Changes to LIO}
+
+First of all, it is probably necessary to implement a \texttt{Cond} type which functions similarly to an \texttt{LIORef} of \texttt{Bool}, but which doesn't allow conditions to be unset once set and which allows comparing conditions based on reference equivalence.
+
+Given the proper implementation of \texttt{Cond}, we can implement the following type:
+
+\begin{lstlisting}[language=Haskell]
+
+data AtomicPolicy = L Principal | D Cond | E Cond
+
+-- constructors
+
+latticeFromPrincipal :: Principal -> AtomicPolicy
+latticeFromPrincipal pr = L pr
+
+latticePolicy :: String -> AtomicPolicy
+latticePolicy str = latticeFromPrincipal $ principal str
+
+-- instance
+instance Eq AtomicPolicy where
+	L x == L y  =  x == y
+	D c == D d  =  c == d
+	E c == E d  =  c == d
+	x == y  =  false
+\end{lstlisting}
+(Code may have some errors; not sure)
+
+If we then replace \texttt{Principal} with \texttt{AtomicCond} in the regular DCLabel code, we should have the basic support we need for label relationships.
+
+We can also implement the following helper functions:
+
+\begin{lstlisting}[language=Haskell]
+
+(/>) :: (ToCNF a, ToCNF b) -> a -> b -> Cond -> CNF
+(\>) :: (ToCNF a, ToCNF b) -> a -> b -> Cond -> CNF
+
+p (/>) q c = (p /\ q) \/ (p /\ (E c))
+p (\>) q c = p \/ (q /\ (D c))
+
+\end{lstlisting}
+
+Which would make it easier to create general declassification and erasure policies. 
+
+After this, we would need to implement the \texttt{update} function, which updates a label based on the current status of its conditions. We can define this helper function:
+
+\begin{lstlisting}[language=Haskell]
+updateAtomic :: LIO AtomicPolicy -> LIO AtomicPolicy
+updateAtomic (LIO (L l)) = LIO (L l)
+updateAtomic (LIO (D c)) = if (readCond c) then cTrue else (D c)
+updateAtomic (LIO (E c)) = if (readCond c) then cFalse else (E c)
+\end{lstlisting}
+
+Which then can be mapped to the atoms of the CNF to update the entire policy.
+
+After this, its just a matter of calling \texttt{update} in the situations where the policy needs to be updated, as discussed earlier.
+
+\break
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Case Studies
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Case Studies}
+This section discusses three case studies for practical applications of these ideas.
+
+\section{Ideas for application to real-world model}
+
+I had three main ideas here.
+
+In all cases I'm envisioning an online webserver where data is collected, and users have the ability to submit requests for their data to be deleted through this server.
+
+Of these, my main focus is on the mailing list idea.
+
+\subsection{idea 1: mailing list}
+Users sign up to the mailing list by entering a login and an email address. The server can then send emails to all users on the mailing list using the addresses it has. 
+
+Users can use their login to update their email address or delete it from the server entirely. Policy should enforce erasure of the original email address when it gets updated, and erasure of any email address that gets deleted, along with account info.
+
+\subsection{idea 2: fitness tracker}
+A simple fitness app that records things like number of steps taken per day, and so on. Data is grouped by date and time, and users would have the ability to see their own data or delete it for a particular category or time period.
+
+Could maybe add the option to declassify data to send it to, e.g. a doctor or a fitness coach.
+
+\subsection{idea 3: ad service}
+A server that stores data on a users demographics and interests, and can serve ads based on that information.
+
+Users would be able to query the database to see what the database categorizes them as, and to request the deletion of some or all of that data.
+
+\end{document}

@@ -1,0 +1,110 @@
+\documentclass[11pt, oneside]{article}   	% use "amsart" instead of "article" for AMSLaTeX format
+\usepackage{geometry}                		% See geometry.pdf to learn the layout options. There are lots.
+\geometry{letterpaper}                   		% ... or a4paper or a5paper or ... 
+%\geometry{landscape}                		% Activate for rotated page geometry
+%\usepackage[parfill]{parskip}    		% Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}				% Use pdf, png, jpg, or eps§ with pdflatex; use eps in DVI mode
+								% TeX will automatically convert eps --> pdf in pdflatex		
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{mathtools} 
+\usepackage{proof}
+\usepackage{listings}
+\usepackage{turnstile}
+
+%SetFonts
+
+%SetFonts
+
+
+\title{LIO Language Update}
+\author{Wesley Nuzzo}
+%\date{}							% Activate to display a given date or no date
+
+\begin{document}
+\maketitle
+
+\section{Update of figure 2 (syntax)} 
+\noindent 
+
+Bool: $b$
+
+Policy:
+\begin{equation*} p ::=  l\ |\ p\nearrow^a p\ |\ p\searrow^a p  \end{equation*}
+
+Term:
+\begin{equation*}
+\begin{split}
+v::= \texttt{true}\ |\ \texttt{false}\ |\ ()\ |\ p\ |\ a\ |\ x\ |\  \lambda x.e\ |\ (e,e)\ 
+|\ \texttt{fix } e\ |\ \texttt{Lb } v\ e\ |\ (e)^\texttt{LIO}\ | \bullet \\
+|\ \texttt{Cnd } v\ b
+\end{split}
+\end{equation*}
+
+Expression:
+\begin{equation*}
+\begin{split}
+e::= \dots\ |\ \texttt{newCond } e\ e\ |\ \texttt{readCond } e\ |\ \texttt{setCondTrue } e\ | \texttt{labelOfCond } e \\
+%|\ \texttt{unlabel } e\ |\ \texttt{unlabelAndDeclassify } e\ e
+\end{split}
+\end{equation*}
+
+\section{Two different paradigms}
+There are two different possible paradigms for implementing this concept.
+
+The first paradigm is the one presented in Chong's thesis: no memory location can change it's policy, but a declassification policy can be flow to it's secondary policy if it's condition is met, an erasure policy can flow to the join of its primary and secondary policy at all times, and data must be deleted if it requires erasure (i.e., it has an erasure policy whose condition is met or its primary policy requires erasure).
+
+The second paradigm is a bit simpler: the data doesn't change, but the policy does change ``under'' the values as the conditions update.
+
+
+\section{Semantics}
+
+%\subsection{paradigm 1 (Chong's version)}
+
+
+
+\subsection{paradigm 2 (updating policy)}
+
+I'm still working on this one.
+
+%%%%
+% Label and Unlabel
+Label: 
+\infer{\langle\Sigma, E[\texttt{label}\ p\ e]\rangle \longrightarrow \langle\Sigma, E[\texttt{return}\ (\texttt{Lb}\ p\ e)]\rangle}
+       	{\Sigma.lbl \sqsubseteq l \sqsubseteq \Sigma.clr}
+	{}
+
+Unlabel:
+\infer{\langle\Sigma, E[\texttt{unlabel}\ (\texttt{Lb}\ p\ e)]\rangle \longrightarrow \langle\Sigma', E[\texttt{return}\ e)]\rangle}
+       	{p'=\Sigma.lbl\sqcup update(p,\Sigma) & p'\sqsubseteq\Sigma.clr & \Sigma'=\Sigma[lbl\mapsto p']}
+	{}
+
+---
+
+%%%%
+% Conditions
+SetCondTrue
+\infer{\langle\Sigma, E[\texttt{setCondTrue}\ a]\rangle \longrightarrow \langle\Sigma'', E[\texttt{return}\ ()]\rangle}
+       	{\begin{aligned}\Sigma.\phi(a)=\texttt{Cond}\ p\ e && \Sigma'=\Sigma.\phi[a\mapsto\texttt{Cond}\ p\ \texttt{true}] \\
+	\Sigma.lbl\sqsubseteq p \sqsubseteq\Sigma.clr && \Sigma'' = \Sigma[lbl\mapsto update(\Sigma'.lbl, \Sigma')]
+	\end{aligned}}
+	{}
+	
+\subsubsection{helper function: $update$}
+$$update(l, \Sigma) = l$$
+When $c$ is true:
+$$update(p\searrow^cq, \Sigma) = p\sqcap(pol(c) \sqcup q)$$
+$$update(p\nearrow^cq, \Sigma) = p \sqcup q$$
+
+When $c$ is false:
+$$update(p\searrow^cq, \Sigma) = p\searrow^cq$$
+$$update(p\nearrow^cq, \Sigma) = q\sqcap(pol(c)\sqcup p\nearrow^cq)$$
+
+%\section{Equivalences that may be helpful}
+%
+%$$ p\nearrow^c q = (p\nearrow^c\top) \sqcap (p\sqcup q)$$
+%$$ p\nearrow^c q = p \sqcup (pol(c)\nearrow^cq)$$
+%
+%$$ p\searrow^c q = (p\searrow^cpol(c)) \sqcup (p\sqcap q) $$
+%$$ p\searrow^c q = p \sqcap (\top\searrow^cq)$$
+\end{document}
